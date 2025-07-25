@@ -1,0 +1,28 @@
+name: Code Quality Workflow
+#on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build_test:
+    name: Code Coverage
+    runs-on: ubuntu_latest
+    steps:
+        - name: Code Checkout
+          uses: actions/checkout@v4
+
+        - name: Install Java
+          uses: actions/setup-java@v4
+          with:
+            version: '17'
+            
+        
+  
+  
+  
+
+
+      
