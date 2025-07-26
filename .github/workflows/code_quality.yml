@@ -1,9 +1,9 @@
 name: Code Quality Workflow
 #on: [push, pull_request, workflow_dispatch]
 on:
-  push:
-    branches: [main]
-  pull_request:
+  #push:
+    #branches: [main]
+  #pull_request:
   workflow_dispatch:
 
 jobs:
@@ -38,6 +38,7 @@ jobs:
   build_test:
     name: Code Coverage
     runs-on: ubuntu_latest
+    needs: 
     steps:
         - name: Code Checkout
           uses: actions/checkout@v4
