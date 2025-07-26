@@ -38,7 +38,7 @@ jobs:
   build_test:
     name: Code Coverage
     runs-on: ubuntu_latest
-    needs: 
+    needs: terraform
     steps:
         - name: Code Checkout
           uses: actions/checkout@v4
