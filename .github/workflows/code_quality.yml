@@ -1,12 +1,40 @@
 name: Code Quality Workflow
 #on: [push, pull_request, workflow_dispatch]
 on:
-  #push:
-    #branches: [main]
-  #pull_request:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  terraform:
+    name: Terraform Infrastructure Provisioning
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name:  Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID  }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION  }}
+          
+      - name: set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Initialise Terraform
+        run: terraform init
+        
+      - name: plan Terraform
+        run: terraform plan  
+
+      - name: apply Terraform
+        run: terraform apply -auto-approve        
+      
   build_test:
     name: Code Coverage
     runs-on: ubuntu_latest
@@ -18,6 +46,149 @@ jobs:
           uses: actions/setup-java@v4
           with:
             version: '17'
+
+        - name: Build with Maven and generate coverage
+          run: |
+            maven clean verify \
+            -Pcoverage \
+            ---
+        - name: check code coverage threshold
+          run : |
+            coverage logic
+            percent= $(echo "$total/($coverage + $total)* 100" bc -l)
+            echo "Coverage = $percent%"
+            if (( $(echo "$percent < 80" | bc -l) )); then
+            echo "Code coverage below 80%. Failing."
+            exit 1
+            fi
+            
+  static_code_analysis:
+    name: sonarqube 
+    runs-on: ubunutu_latest
+    needs: build_test
+    
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: set up Java
+        uses: actions/setup-java@v4
+        with:
+          version: '17'
+
+      - name: Cache Sonarqube package
+        uses: actions/cache@v3
+        with:
+          path: ~/.sonar/cache
+          key: $ {{ runner.os }}-sonar
+          restore-keys: $ {{ runner.os }}-sonar 
+
+      - name: run sonarqube scan
+        env: 
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn sonar:sonar \
+          Dsonar.projectKey = xyz
+          Dsonar.host.url = https://abc..
+          Dosnar.login = $SONAR_TOKEN
+
+  Security_Scan:
+    name: Docker Image Security Scan (Trivy)
+    runs-on: ubuntu_latest
+    needs: build_test
+    
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: install trivy
+        run: |
+          sudo apt-get install trivy -y
+
+      - name: build Docker Image
+        run: |
+            docker build -t myapp:latest .
+
+      - name: Run trivy vulnerability Scan
+        run: |
+          trivy image --exitcode 1 --sevrity HIGH,CRITICAL myapp:latest
+
+  push-to-ecr:
+    name: push dockerimage to Amazon ECR
+    runs-on: ubuntu_latest
+    needs: Security_Scan
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION  }}
+      ECR_REPO: ${{ secrets.ECR_REPO }}
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name:  Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID  }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION  }}
+
+      - name: login to ECR 
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build , tag and docker image 
+        id: push-image
+        env:
+          ECR_REPO: ${{ secrets.ECR_REPO }}
+        run: |
+          IMAGE_TAG: latest
+          ECR_URL= $(aws ecr describe-respositories \
+          --repository-name: "$ECR_REPO" \
+          --query ..
+
+          docker build -t $ECR_URL:$IMAGE_TAG
+          docker push $ECR_URL:$IMAGE_TAG
+
+          
+        
+    
+
+  deploy_to_eks:
+    name: Deploy to eks
+    runs-on: ubuntu_latest
+    needs: push-to-ecr
+
+    steps:
+      - name : configure aws 
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID  }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION  }}
+          
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update kubeconfig
+          --region ${{ secrets.AWS_REGION }} \
+          --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl rollout status deployment my-app-deployment
+  
+    
+            
+          
+      
+      
+      
+            
+            
+             
+        
+           
+          
             
         
   
